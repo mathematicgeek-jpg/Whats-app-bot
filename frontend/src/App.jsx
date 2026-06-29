@@ -15,7 +15,9 @@ import {
   HelpCircle,
   Clock,
   Sparkles,
-  Smartphone
+  Smartphone,
+  Sliders,
+  Settings
 } from 'lucide-react';
 
 export default function App() {
@@ -30,6 +32,14 @@ export default function App() {
   const [sessions, setSessions] = useState({});
   const [activeTab, setActiveTab] = useState('crm');
   const [expandedPayloadId, setExpandedPayloadId] = useState(null);
+
+  // Control Panel States
+  const [activeSubTab, setActiveSubTab] = useState('journey');
+  const [journeyNodes, setJourneyNodes] = useState({});
+  const [selectedNodeId, setSelectedNodeId] = useState('WELCOME');
+  const [gameLevels, setGameLevels] = useState([]);
+  const [segments, setSegments] = useState([]);
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -97,6 +107,79 @@ export default function App() {
       eventSource.close();
     };
   }, []);
+
+  // Fetch Config Service definitions on mount
+  useEffect(() => {
+    fetchConfigs();
+  }, []);
+
+  const fetchConfigs = async () => {
+    try {
+      const jRes = await fetch('/api/config/journeys/default');
+      if (jRes.ok) {
+        const jData = await jRes.json();
+        if (jData && jData.definition) {
+          setJourneyNodes(jData.definition.nodes || {});
+        }
+      }
+      
+      const gRes = await fetch('/api/config/games');
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        setGameLevels(gData);
+      }
+      
+      const sRes = await fetch('/api/config/segments');
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        setSegments(sData);
+      }
+    } catch (err) {
+      console.error("Failed to fetch configurations:", err);
+    }
+  };
+
+  const deployJourney = async () => {
+    setIsDeploying(true);
+    try {
+      const res = await fetch('/api/config/journeys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'default',
+          name: 'Default Onboarding',
+          is_active: true,
+          definition: {
+            journey_id: 'default',
+            entry_point: 'WELCOME',
+            nodes: journeyNodes
+          }
+        })
+      });
+      if (res.ok) {
+        alert("🚀 Visual Journey deployed to production microservices cluster!");
+      }
+    } catch (err) {
+      alert("Error deploying journey: " + err.message);
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const saveGameConfig = async (levelConfig) => {
+    try {
+      const res = await fetch('/api/config/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(levelConfig)
+      });
+      if (res.ok) {
+        fetchConfigs();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Initialize Welcome Message on Phone load
   useEffect(() => {
@@ -451,6 +534,13 @@ export default function App() {
                 <Clock size={14} style={{ marginRight: '4px', display: 'inline' }} />
                 Automation & Drop-off Controls
               </button>
+              <button 
+                className={`tab-btn ${activeTab === 'control_panel' ? 'tab-btn-active' : ''}`}
+                onClick={() => setActiveTab('control_panel')}
+              >
+                <Settings size={14} style={{ marginRight: '4px', display: 'inline' }} />
+                Growth Control Panel
+              </button>
             </div>
 
             {/* TAB CONTENT 1: Logs */}
@@ -649,6 +739,318 @@ export default function App() {
                   </div>
 
                 </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT 4: Growth Control Panel */}
+            {activeTab === 'control_panel' && (
+              <div>
+                {/* Sub tabs */}
+                <div className="config-sub-tabs">
+                  <button 
+                    className={`config-sub-tab-btn ${activeSubTab === 'journey' ? 'config-sub-tab-btn-active' : ''}`}
+                    onClick={() => setActiveSubTab('journey')}
+                  >
+                    Visual Journey Builder
+                  </button>
+                  <button 
+                    className={`config-sub-tab-btn ${activeSubTab === 'game' ? 'config-sub-tab-btn-active' : ''}`}
+                    onClick={() => setActiveSubTab('game')}
+                  >
+                    Vedic Math Config
+                  </button>
+                  <button 
+                    className={`config-sub-tab-btn ${activeSubTab === 'segments' ? 'config-sub-tab-btn-active' : ''}`}
+                    onClick={() => setActiveSubTab('segments')}
+                  >
+                    CDP Segmentation
+                  </button>
+                </div>
+
+                {/* Sub Tab: Journey Builder */}
+                {activeSubTab === 'journey' && (
+                  <div>
+                    <div className="control-panel-grid">
+                      {/* Sidebar List of Nodes */}
+                      <div className="node-list-sidebar">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white' }}>Journey Nodes</span>
+                          <button 
+                            className="btn-admin" 
+                            style={{ padding: '0.1rem 0.4rem', fontSize: '0.65rem' }}
+                            onClick={() => {
+                              const newNodeId = prompt("Enter Unique Node ID (e.g. CUSTOM_MESSAGE):");
+                              if (newNodeId) {
+                                setJourneyNodes(prev => ({
+                                  ...prev,
+                                  [newNodeId]: {
+                                    type: 'message',
+                                    responses: [{ text: "Enter message text here...", buttons: [] }],
+                                    transitions: {}
+                                  }
+                                }));
+                                setSelectedNodeId(newNodeId);
+                              }
+                            }}
+                          >
+                            + Add Node
+                          </button>
+                        </div>
+                        {Object.keys(journeyNodes).map((nodeId) => (
+                          <div 
+                            key={nodeId}
+                            className={`node-list-item ${selectedNodeId === nodeId ? 'node-list-item-active' : ''}`}
+                            onClick={() => setSelectedNodeId(nodeId)}
+                          >
+                            <span>{nodeId}</span>
+                            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>{journeyNodes[nodeId].type}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Node Editor Form */}
+                      <div className="node-editor-form">
+                        {selectedNodeId && journeyNodes[selectedNodeId] ? (
+                          <>
+                            <div className="form-group-horizontal">
+                              <span className="form-label">Node ID</span>
+                              <input className="form-input" value={selectedNodeId} disabled style={{ width: '100%' }} />
+                            </div>
+
+                            <div className="form-group-horizontal">
+                              <span className="form-label">Node Type</span>
+                              <select 
+                                className="form-select"
+                                value={journeyNodes[selectedNodeId].type}
+                                onChange={(e) => {
+                                  const type = e.target.value;
+                                  setJourneyNodes(prev => ({
+                                    ...prev,
+                                    [selectedNodeId]: { ...prev[selectedNodeId], type }
+                                  }));
+                                }}
+                                style={{ width: '100%' }}
+                              >
+                                <option value="message">Message Node</option>
+                                <option value="game_evaluator">Game Node</option>
+                                <option value="profiler">Profiler Node</option>
+                                <option value="condition">Condition Node</option>
+                              </select>
+                            </div>
+
+                            {journeyNodes[selectedNodeId].type === 'message' && (
+                              <>
+                                <div className="form-group-horizontal" style={{ alignItems: 'flex-start' }}>
+                                  <span className="form-label">Message Text</span>
+                                  <textarea 
+                                    className="form-textarea" 
+                                    rows={4}
+                                    value={journeyNodes[selectedNodeId].responses?.[0]?.text || ''}
+                                    onChange={(e) => {
+                                      const text = e.target.value;
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.responses = [{ text, buttons: node.responses?.[0]?.buttons || [] }];
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%', resize: 'vertical' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Quick Replies</span>
+                                  <input 
+                                    className="form-input" 
+                                    placeholder="Button 1, Button 2 (comma separated)"
+                                    value={(journeyNodes[selectedNodeId].responses?.[0]?.buttons || []).join(', ')}
+                                    onChange={(e) => {
+                                      const btns = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.responses = [{ text: node.responses?.[0]?.text || '', buttons: btns }];
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.4rem' }}>Transitions / Next Nodes</span>
+                              {journeyNodes[selectedNodeId].type === 'message' && (journeyNodes[selectedNodeId].responses?.[0]?.buttons || []).map((btn) => (
+                                <div key={btn} className="form-group-horizontal" style={{ marginBottom: '0.4rem' }}>
+                                  <span className="form-label" style={{ fontSize: '0.65rem', color: 'white' }}>On "{btn}"</span>
+                                  <select 
+                                    className="form-select"
+                                    value={journeyNodes[selectedNodeId].transitions?.[btn] || ''}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.transitions = { ...node.transitions, [btn]: next };
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%' }}
+                                  >
+                                    <option value="">Choose next node...</option>
+                                    {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                  </select>
+                                </div>
+                              ))}
+                              {(!journeyNodes[selectedNodeId].responses?.[0]?.buttons || journeyNodes[selectedNodeId].responses[0].buttons.length === 0) && (
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">On Default (Any text)</span>
+                                  <select 
+                                    className="form-select"
+                                    value={journeyNodes[selectedNodeId].transitions?.default || ''}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.transitions = { ...node.transitions, default: next };
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%' }}
+                                  >
+                                    <option value="">Choose next node...</option>
+                                    {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '1rem' }}>
+                            Select a node from the sidebar to edit.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Deploy Button */}
+                    <div className="deploy-section">
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Deploys visual JSON configurations directly to the Config Service database.
+                      </span>
+                      <button 
+                        className="btn-deploy" 
+                        onClick={deployJourney}
+                        disabled={isDeploying}
+                      >
+                        {isDeploying ? 'Deploying...' : 'Deploy Journey Config 🚀'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub Tab: Game Level Config */}
+                {activeSubTab === 'game' && (
+                  <div>
+                    <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                      {gameLevels.map((lvl) => (
+                        <div key={lvl.level} className="game-level-config-card">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>Level {lvl.level} Configuration</span>
+                            <span className="badge badge-qualified">Active</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Vedic Question Category</span>
+                              <input 
+                                className="form-input" 
+                                value={lvl.type} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setGameLevels(prev => prev.map(l => l.level === lvl.level ? { ...l, type: val } : l));
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Time Limit (seconds)</span>
+                              <input 
+                                type="number"
+                                className="form-input" 
+                                value={lvl.time_limit} 
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10) || 10;
+                                  setGameLevels(prev => prev.map(l => l.level === lvl.level ? { ...l, time_limit: val } : l));
+                                }}
+                              />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Reward Score</span>
+                              <input 
+                                type="number"
+                                className="form-input" 
+                                value={lvl.reward} 
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10) || 5;
+                                  setGameLevels(prev => prev.map(l => l.level === lvl.level ? { ...l, reward: val } : l));
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', marginTop: '0.5rem' }}>
+                            <button 
+                              className="btn-admin" 
+                              style={{ width: '80px', flex: 'none', padding: '0.25rem 0.5rem', fontSize: '0.65rem' }}
+                              onClick={() => saveGameConfig(lvl)}
+                            >
+                              Save Level
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub Tab: CDP Segmentation */}
+                {activeSubTab === 'segments' && (
+                  <div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.25rem' }}>Dynamic CDP Segments</span>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                        Configure tags assigned automatically by the Segmentation microservice based on calculation statistics.
+                      </p>
+                      <table className="crm-contacts-table" style={{ fontSize: '0.7rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Segment Name</th>
+                            <th>Rules Filter Criteria</th>
+                            <th>Dynamic Action Tag</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td><strong>Math Wizards</strong></td>
+                            <td>Accuracy rate = 100%, Level complete = 5, Time &lt; 6s</td>
+                            <td><span className="badge badge-qualified">Assign "Math Wizard" (+10 bonus)</span></td>
+                          </tr>
+                          <tr>
+                            <td><strong>Struggling Learners</strong></td>
+                            <td>Accuracy rate &lt; 60%, Levels played &ge; 3</td>
+                            <td><span className="badge badge-engaged">Assign "Struggling Learner" (Nudge flow)</span></td>
+                          </tr>
+                          <tr>
+                            <td><strong>Speed Demons</strong></td>
+                            <td>Average answer time &lt; 4.5s, Levels played &ge; 3</td>
+                            <td><span className="badge badge-new">Assign "Speed Demon"</span></td>
+                          </tr>
+                          <tr>
+                            <td><strong>High Intent Leads</strong></td>
+                            <td>Lead Score &ge; 50, Stage != Demo Booked</td>
+                            <td><span className="badge badge-demo">Assign "High Intent" (Sales alert)</span></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

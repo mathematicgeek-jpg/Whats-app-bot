@@ -112,7 +112,26 @@ async function processJourneyTransition(phone, text, isButton) {
     };
   }
 
-  const workflow = workflows[session.current_workflow_id || 'default'];
+  // Load active workflow configuration from PostgreSQL, fall back to workflows.json
+  let workflow = null;
+  try {
+    const workflowId = session.current_workflow_id || 'default';
+    const dbRes = await pgPool.query(
+      'SELECT definition FROM journeys WHERE id = $1 AND is_active = true',
+      [workflowId]
+    );
+    if (dbRes.rows.length > 0) {
+      workflow = JSON.parse(dbRes.rows[0].definition);
+    }
+  } catch (err) {
+    logger.error(`Failed to load active journey from DB: ${err.message}`);
+  }
+
+  // Fall back to workflows.json
+  if (!workflow) {
+    workflow = workflows[session.current_workflow_id || 'default'];
+  }
+
   let currentNode = workflow.nodes[session.current_node_id || 'WELCOME'];
   
   let outboundMessages = [];

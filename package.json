@@ -15,7 +15,8 @@
     "start:segmentation": "PORT=3004 node apps/segmentation-service/server.js",
     "start:notification": "PORT=3005 node apps/notification-service/server.js",
     "start:analytics": "PORT=3006 node apps/analytics-service/server.js",
-    "dev": "concurrently -k -p \"[{name}]\" -n \"gateway,journey,game,segment,notif,analytics\" -c \"cyan,magenta,yellow,blue,green,red\" \"npm run start:gateway\" \"npm run start:journey\" \"npm run start:game\" \"npm run start:segmentation\" \"npm run start:notification\" \"npm run start:analytics\""
+    "start:config": "PORT=3007 node apps/config-service/server.js",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"gateway,journey,game,segment,notif,analytics,config\" -c \"cyan,magenta,yellow,blue,green,red,white\" \"npm run start:gateway\" \"npm run start:journey\" \"npm run start:game\" \"npm run start:segmentation\" \"npm run start:notification\" \"npm run start:analytics\" \"npm run start:config\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

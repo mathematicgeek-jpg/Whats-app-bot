@@ -5,6 +5,7 @@ import { createEvent } from '@mathgeek/event-schema';
 import { pgPool, redis } from '@mathgeek/db';
 import { logger } from '@mathgeek/utils';
 import Redis from 'ioredis';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -79,6 +80,98 @@ async function bootstrapDatabase() {
         PRIMARY KEY (user_phone, tag)
       )
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS journeys (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        definition TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT false,
+        created_at VARCHAR(50) NOT NULL,
+        updated_at VARCHAR(50) NOT NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS segments (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        rules TEXT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        updated_at VARCHAR(50) NOT NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS game_configs (
+        id VARCHAR(50) PRIMARY KEY,
+        level INTEGER UNIQUE NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        time_limit INTEGER NOT NULL,
+        reward INTEGER NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        updated_at VARCHAR(50) NOT NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS triggers (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        event_type VARCHAR(50) NOT NULL,
+        actions TEXT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        updated_at VARCHAR(50) NOT NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS message_templates (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        text TEXT NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        updated_at VARCHAR(50) NOT NULL
+      )
+    `);
+
+    // Seed default journey from workflows.json if empty
+    const journeysCheck = await client.query('SELECT COUNT(*) FROM journeys');
+    if (parseInt(journeysCheck.rows[0].count, 10) === 0) {
+      logger.info('Seeding default journey into PostgreSQL...');
+      const workflowPath = new URL('../journey-service/workflows.json', import.meta.url);
+      const defaultWorkflow = await fs.promises.readFile(workflowPath, 'utf8');
+      const workflowObj = JSON.parse(defaultWorkflow);
+      const now = new Date().toISOString();
+      await client.query(
+        `INSERT INTO journeys (id, name, definition, is_active, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['default', 'Default Onboarding', JSON.stringify(workflowObj.default || workflowObj), true, now, now]
+      );
+    }
+
+    // Seed default game configs if empty
+    const gameConfigsCheck = await client.query('SELECT COUNT(*) FROM game_configs');
+    if (parseInt(gameConfigsCheck.rows[0].count, 10) === 0) {
+      logger.info('Seeding default game configs into PostgreSQL...');
+      const now = new Date().toISOString();
+      const defaultConfigs = [
+        { level: 1, type: 'multiplication_11', time_limit: 10, reward: 10 },
+        { level: 2, type: 'squares_5', time_limit: 10, reward: 10 },
+        { level: 3, type: 'base_100_subtraction', time_limit: 15, reward: 15 },
+        { level: 4, type: 'base_100_addition', time_limit: 15, reward: 15 },
+        { level: 5, type: 'near_1000', time_limit: 20, reward: 20 }
+      ];
+      for (const config of defaultConfigs) {
+        await client.query(
+          `INSERT INTO game_configs (id, level, type, time_limit, reward, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [`game_lvl_${config.level}`, config.level, config.type, config.time_limit, config.reward, now, now]
+        );
+      }
+    }
+
     logger.info('PostgreSQL schemas bootstrapped successfully.');
   } catch (err) {
     logger.error(`Error bootstrapping PostgreSQL database: ${err.message}`);
@@ -415,6 +508,33 @@ fastify.post('/api/admin/reset', async (request, reply) => {
     return { success: true };
   } catch (err) {
     return reply.code(500).send({ error: err.message });
+  }
+});
+
+// Proxy configuration endpoints to Config Service (Port 3007)
+const CONFIG_SERVICE_URL = process.env.CONFIG_SERVICE_URL || 'http://localhost:3007';
+
+fastify.route({
+  method: ['GET', 'POST'],
+  url: '/api/config/*',
+  handler: async (request, reply) => {
+    const targetUrl = `${CONFIG_SERVICE_URL}${request.url}`;
+    const method = request.method;
+    const headers = { 'Content-Type': 'application/json' };
+    
+    const fetchOptions = { method, headers };
+    if (method === 'POST') {
+      fetchOptions.body = JSON.stringify(request.body || {});
+    }
+
+    try {
+      const res = await fetch(targetUrl, fetchOptions);
+      const data = await res.json();
+      return reply.code(res.status).send(data);
+    } catch (err) {
+      logger.error(`Error proxying config request to ${targetUrl}: ${err.message}`);
+      return reply.code(500).send({ error: 'Config Service Unreachable' });
+    }
   }
 });
 
