@@ -1,0 +1,9 @@
+{
+  "name": "@mathgeek/utils",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "pino": "^9.0.0"
+  }
+}

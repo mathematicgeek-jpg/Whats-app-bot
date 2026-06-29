@@ -1,0 +1,130 @@
+{
+  "default": {
+    "name": "Vedic Math Game & Qualification Journey",
+    "nodes": {
+      "WELCOME": {
+        "text": "👋 Hey there! Welcome to *MathematicsGeek.com*!\n\nCan you solve equations faster than a calculator? Let's find out! Let's play a *60-Second Vedic Maths Game*. It has 5 levels, and we'll teach you a neat trick after each level!\n\nAre you ready? 🚀",
+        "buttons": ["Start Challenge 🚀", "Know More 📘"],
+        "transitions": [
+          {
+            "trigger": "button",
+            "value": "Start Challenge 🚀",
+            "next_node": "GAME_LEVEL",
+            "actions": [
+              { "type": "sync_crm", "payload": { "lead_stage": "New", "lead_score_add": 10 } }
+            ]
+          },
+          {
+            "trigger": "button",
+            "value": "Know More 📘",
+            "next_node": "INFO"
+          }
+        ]
+      },
+      "INFO": {
+        "text": "📘 *Vedic Mathematics* is an ancient system that helps students solve math problems 10x faster with zero stress.\n\nOver 15,000+ students (Grades 3-12) have used our techniques to build math confidence!\n\nBest way to learn is by playing. Want to start the challenge? 👇",
+        "buttons": ["Let's Play! 🚀"],
+        "transitions": [
+          {
+            "trigger": "button",
+            "value": "Let's Play! 🚀",
+            "next_node": "GAME_LEVEL",
+            "actions": [
+              { "type": "sync_crm", "payload": { "lead_stage": "New", "lead_score_add": 10 } }
+            ]
+          }
+        ]
+      },
+      "GAME_LEVEL": {
+        "type": "game_evaluator",
+        "transitions": [
+          {
+            "trigger": "game_success",
+            "next_node": "SCORE_SUMMARY",
+            "actions": [
+              { "type": "sync_crm", "payload": { "lead_stage": "Engaged", "lead_score_add": 20 } }
+            ]
+          }
+        ]
+      },
+      "SCORE_SUMMARY": {
+        "text": "📊 *Game Complete!*\n\nYour Score: {score}/5\nAccuracy: {accuracy}%\nAverage Speed: {speed_sec} seconds/answer.\n\nTo lock in these techniques and learn 50+ more tricks, book our *Free Live Interactive Vedic Maths Class*! 📅",
+        "buttons": ["Book Free Live Class 📅"],
+        "transitions": [
+          {
+            "trigger": "button",
+            "value": "Book Free Live Class 📅",
+            "next_node": "CAPTURE_NAME"
+          }
+        ]
+      },
+      "CAPTURE_NAME": {
+        "text": "Let's personalize your free class slot! What is the student's name? 👤",
+        "type": "input_capture",
+        "variable": "name",
+        "transitions": [
+          {
+            "trigger": "input",
+            "next_node": "CAPTURE_GRADE"
+          }
+        ]
+      },
+      "CAPTURE_GRADE": {
+        "text": "Great to meet you, {name}! What grade is the student in? 📚",
+        "buttons": ["Grade 3-5 📚", "Grade 6-8 📚", "Grade 9-12 📚"],
+        "type": "input_capture",
+        "variable": "grade",
+        "transitions": [
+          {
+            "trigger": "button",
+            "next_node": "CAPTURE_CITY"
+          }
+        ]
+      },
+      "CAPTURE_CITY": {
+        "text": "Got it! Which city do you live in? 🏙️",
+        "type": "input_capture",
+        "variable": "city",
+        "transitions": [
+          {
+            "trigger": "input",
+            "next_node": "CAPTURE_PHONE"
+          }
+        ]
+      },
+      "CAPTURE_PHONE": {
+        "text": "Almost done! What is your parent's mobile number for slot confirmation? 📞",
+        "type": "input_capture",
+        "variable": "parent_phone",
+        "transitions": [
+          {
+            "trigger": "input",
+            "next_node": "PITCH_AND_CTA",
+            "actions": [
+              { "type": "sync_crm", "payload": { "lead_stage": "Qualified", "lead_score_add": 20 } },
+              { "type": "trigger_qualification_webhook" }
+            ]
+          }
+        ]
+      },
+      "PITCH_AND_CTA": {
+        "text": "🎉 *Class Registered!* Your slot is reserved.\n\nNow, select a time that works best for you and your parent on our calendar link to finalize the demo. 👇\n\n🔗 https://calendly.com/mathgeek/live-class",
+        "buttons": ["Book Free Slot 📅"],
+        "transitions": [
+          {
+            "trigger": "button",
+            "value": "Book Free Slot 📅",
+            "next_node": "COMPLETED",
+            "actions": [
+              { "type": "sync_crm", "payload": { "lead_stage": "Demo Booked", "lead_score_add": 40 } }
+            ]
+          }
+        ]
+      },
+      "COMPLETED": {
+        "text": "✨ Your live demo has been confirmed! We have sent a calendar invite and slot details to your parent's phone. Prepare to unlock your inner math wizard! 🧙‍♂️⚡",
+        "transitions": []
+      }
+    }
+  }
+}

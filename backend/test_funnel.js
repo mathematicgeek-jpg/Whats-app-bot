@@ -18,8 +18,11 @@ async function runTest() {
     if (!resetData.success) throw new Error('Database reset failed');
     console.log('✅ Database reset successful.\n');
 
-    // Helper to send webhook message
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Helper to send webhook message and poll async logs for responses
     const sendMessage = async (text, isButton = false) => {
+      const startTime = new Date();
       const res = await fetch(`${BACKEND_URL}/api/whatsapp-webhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -27,11 +30,23 @@ async function runTest() {
       });
       const data = await res.json();
       if (!data.success) throw new Error(`Failed to send message: ${text}`);
-      return data.responses;
+      
+      // Wait for async processing to finish
+      await sleep(300);
+
+      // Fetch logs and find WHATSAPP_OUT logs sent after startTime
+      const logsRes = await fetch(`${BACKEND_URL}/api/crm/logs`);
+      const logs = await logsRes.json();
+      const relevantLogs = logs
+        .filter(l => l.user_phone === TEST_PHONE && l.event_type === 'WHATSAPP_OUT' && new Date(l.created_at) >= startTime)
+        .reverse();
+
+      return relevantLogs.map(l => l.payload);
     };
 
     // Helper to get CRM contact
     const getContact = async () => {
+      await sleep(200);
       const res = await fetch(`${BACKEND_URL}/api/crm/contacts`);
       const contacts = await res.json();
       return contacts.find(c => c.whatsapp_number === TEST_PHONE);

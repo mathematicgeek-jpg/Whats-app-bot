@@ -1,0 +1,26 @@
+{
+  "name": "whatsapp-bot-platform",
+  "version": "1.0.0",
+  "description": "Production-grade, event-driven WhatsApp bot microservices platform",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "start:gateway": "PORT=3001 node apps/api-gateway/server.js",
+    "start:journey": "PORT=3003 node apps/journey-service/server.js",
+    "start:game": "PORT=3002 node apps/game-service/server.js",
+    "start:segmentation": "PORT=3004 node apps/segmentation-service/server.js",
+    "start:notification": "PORT=3005 node apps/notification-service/server.js",
+    "start:analytics": "PORT=3006 node apps/analytics-service/server.js",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"gateway,journey,game,segment,notif,analytics\" -c \"cyan,magenta,yellow,blue,green,red\" \"npm run start:gateway\" \"npm run start:journey\" \"npm run start:game\" \"npm run start:segmentation\" \"npm run start:notification\" \"npm run start:analytics\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

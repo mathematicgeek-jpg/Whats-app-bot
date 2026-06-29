@@ -1,0 +1,16 @@
+{
+  "name": "api-gateway",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "dotenv": "^16.4.5",
+    "@mathgeek/event-bus": "*",
+    "@mathgeek/event-schema": "*",
+    "@mathgeek/utils": "*"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@mathgeek/event-bus",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "@mathgeek/db": "*",
+    "@mathgeek/utils": "*"
+  }
+}
