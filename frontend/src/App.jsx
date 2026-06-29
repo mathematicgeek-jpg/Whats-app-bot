@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const API_BASE = import.meta.env.VITE_API_URL || '';
   const [phone, setPhone] = useState('+919876543210');
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState([]);
@@ -63,7 +64,7 @@ export default function App() {
 
   // Connect to SSE stream
   useEffect(() => {
-    const eventSource = new EventSource('/api/events');
+    const eventSource = new EventSource(API_BASE + '/api/events');
 
     eventSource.addEventListener('init', (e) => {
       const data = JSON.parse(e.data);
@@ -115,7 +116,7 @@ export default function App() {
 
   const fetchConfigs = async () => {
     try {
-      const jRes = await fetch('/api/config/journeys/default');
+      const jRes = await fetch(API_BASE + '/api/config/journeys/default');
       if (jRes.ok) {
         const jData = await jRes.json();
         if (jData && jData.definition) {
@@ -123,13 +124,13 @@ export default function App() {
         }
       }
       
-      const gRes = await fetch('/api/config/games');
+      const gRes = await fetch(API_BASE + '/api/config/games');
       if (gRes.ok) {
         const gData = await gRes.json();
         setGameLevels(gData);
       }
       
-      const sRes = await fetch('/api/config/segments');
+      const sRes = await fetch(API_BASE + '/api/config/segments');
       if (sRes.ok) {
         const sData = await sRes.json();
         setSegments(sData);
@@ -142,7 +143,7 @@ export default function App() {
   const deployJourney = async () => {
     setIsDeploying(true);
     try {
-      const res = await fetch('/api/config/journeys', {
+      const res = await fetch(API_BASE + '/api/config/journeys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -168,7 +169,7 @@ export default function App() {
 
   const saveGameConfig = async (levelConfig) => {
     try {
-      const res = await fetch('/api/config/games', {
+      const res = await fetch(API_BASE + '/api/config/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(levelConfig)
@@ -214,7 +215,7 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/whatsapp-webhook', {
+      const response = await fetch(API_BASE + '/api/whatsapp-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -247,14 +248,14 @@ export default function App() {
 
   const handleReset = async () => {
     if (confirm("Reset all session states and mock CRM data?")) {
-      await fetch('/api/admin/reset', { method: 'POST' });
+      await fetch(API_BASE + '/api/admin/reset', { method: 'POST' });
       setMessages([]);
     }
   };
 
   const triggerCalendlyBooking = async () => {
     try {
-      const res = await fetch('/api/crm/book-demo', {
+      const res = await fetch(API_BASE + '/api/crm/book-demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone })
@@ -270,7 +271,7 @@ export default function App() {
 
   const triggerFollowup = async (day) => {
     try {
-      const res = await fetch('/api/admin/trigger-followup', {
+      const res = await fetch(API_BASE + '/api/admin/trigger-followup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, day })
