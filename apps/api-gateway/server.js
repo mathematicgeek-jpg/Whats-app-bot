@@ -34,6 +34,18 @@ async function bootstrapDatabase() {
       )
     `);
 
+    // Gamification & behavioral attributes migrations
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS streak INTEGER DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS rank VARCHAR(30) DEFAULT 'Bronze';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS badges TEXT DEFAULT '[]';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS energy INTEGER DEFAULT 5;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active VARCHAR(50);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS derived_attributes TEXT DEFAULT '{}';
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS sessions (
         id VARCHAR(50) PRIMARY KEY,

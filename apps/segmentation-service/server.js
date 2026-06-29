@@ -49,6 +49,42 @@ async function evaluateSegments(phone) {
 
     const accuracyRate = totalLevelsPlayed > 0 ? (correctCount / totalLevelsPlayed) * 100 : 0;
 
+    // Derived behavioral & predictive attributes calculations
+    const fastLearnerScore = avgResponseTime && avgResponseTime > 0 
+      ? parseFloat(((accuracyRate / (avgResponseTime / 1000))).toFixed(2)) 
+      : 0;
+
+    const lastActiveStr = user.last_active;
+    let churnRisk = 'LOW';
+    if (!lastActiveStr) {
+      churnRisk = 'MEDIUM';
+    } else {
+      const now = new Date();
+      const lastActiveDate = new Date(lastActiveStr);
+      const diffTime = Math.abs(now - lastActiveDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays > 2 || user.streak === 0) {
+        churnRisk = 'HIGH';
+      }
+    }
+
+    const totalXp = user.xp || 0;
+    const engagementScore = (user.streak || 0) * 10 + totalLevelsPlayed * 5 + totalXp * 0.1;
+    const difficultyPreference = (accuracyRate > 80 && avgResponseTime && avgResponseTime < 5000) ? 'hard' : 'normal';
+
+    const derivedAttributes = {
+      fast_learner_score: fastLearnerScore,
+      churn_risk: churnRisk,
+      engagement_score: engagementScore,
+      difficulty_preference: difficultyPreference
+    };
+
+    // Save derived attributes to users table
+    await client.query(
+      'UPDATE users SET derived_attributes = $1, updated_at = $2 WHERE phone_number = $3',
+      [JSON.stringify(derivedAttributes), new Date().toISOString(), phone]
+    );
+
     const tagsToAssign = [];
     const tagsToRemove = [];
 
@@ -78,6 +114,27 @@ async function evaluateSegments(phone) {
       tagsToAssign.push('High Intent');
     } else {
       tagsToRemove.push('High Intent');
+    }
+
+    // Rule 5: Rising Star (Accuracy > 80%, avgResponseTime < 6s, level >= 2)
+    if (accuracyRate > 80 && avgResponseTime && avgResponseTime < 6000 && user.level >= 2) {
+      tagsToAssign.push('Rising Star');
+    } else {
+      tagsToRemove.push('Rising Star');
+    }
+
+    // Rule 6: At Risk (Predictive churn risk is HIGH)
+    if (churnRisk === 'HIGH') {
+      tagsToAssign.push('At Risk');
+    } else {
+      tagsToRemove.push('At Risk');
+    }
+
+    // Rule 7: Competitive User (Streak >= 3 or played >= 5 times)
+    if ((user.streak || 0) >= 3 || totalLevelsPlayed >= 5) {
+      tagsToAssign.push('Competitive User');
+    } else {
+      tagsToRemove.push('Competitive User');
     }
 
     // Process tag additions

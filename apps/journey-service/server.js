@@ -241,17 +241,27 @@ async function processJourneyTransition(phone, text, isButton) {
           attempts: currentAttempts
         }));
 
+        const gamRes = await updateGamification(phone, evalData.correct, responseTimeMs);
+        const tagsRes = await pgPool.query('SELECT tag FROM user_tags WHERE user_phone = $1', [phone]);
+        const userTags = tagsRes.rows.map(r => r.tag);
+        const isStruggling = userTags.includes('Struggling Learner');
+
+        let energyAlert = gamRes.energy === 0 ? "\n\n⚠️ *Out of Energy!* Restore ⚡ by finishing a review or playing tomorrow." : "";
+        let levelUpAlert = gamRes.levelUp ? `🔥 *Level Up!* You reached *Level ${gamRes.level}* and unlocked *${gamRes.rank}* rank! 🏆\n\n` : "";
+
         if (evalData.correct) {
           outboundMessages.push({
-            text: `🎉 *Correct!* Great job!\n\n${evalData.trick}`
+            text: `${levelUpAlert}🎉 *Correct!* Great job! (+${gamRes.xpGained} XP, Streak: ${gamRes.streak} 🔥) | Level ${gamRes.level} (${gamRes.xp % 100}/100 XP)${energyAlert}\n\n${evalData.trick}`
           });
 
           gameState.level = level + 1;
           gameState.correct_count = correctCount + 1;
           gameState.attempts = 0;
           
-          // Disable hard mode for test suites, otherwise set based on response speed (< 6000ms)
-          gameState.is_hard_mode = responseTimeMs < 6000 && !phone.includes('9999988888') && !phone.includes('7777766666');
+          const uRes = await pgPool.query('SELECT derived_attributes FROM users WHERE phone_number = $1', [phone]);
+          const derivedAttrs = uRes.rows[0]?.derived_attributes ? JSON.parse(uRes.rows[0].derived_attributes) : {};
+          const isTestPhone = phone.includes('9999988888') || phone.includes('7777766666');
+          gameState.is_hard_mode = !isTestPhone && (derivedAttrs.difficulty_preference === 'hard' || gamRes.level >= 3);
 
           if (level < 4) {
             outboundMessages[0].buttons = ['Next Level 🚀'];
@@ -261,15 +271,22 @@ async function processJourneyTransition(phone, text, isButton) {
             outboundMessages[0].buttons = ['See My Results 📊'];
           }
         } else {
+          let hintText = "";
+          if (isStruggling) {
+            if (level === 1) hintText = "\n\n💡 *Hint*: For multiplying by 11, add the two digits of the number and insert in the middle!";
+            if (level === 2) hintText = "\n\n💡 *Hint*: For squaring numbers ending in 5, multiply the tens digit by (tens + 1) and append 25!";
+            if (level === 3) hintText = "\n\n💡 *Hint*: Base 100 subtraction: check how far below 100 each number is!";
+          }
+
           if (currentAttempts < 2) {
             gameState.attempts = currentAttempts;
             outboundMessages.push({
-              text: `❌ *Oops! That's not correct.* Let's try again, you can do it! ⚡`
+              text: `❌ *Oops! That's not correct.* Let's try again! (+2 XP for effort 🛡️) | Energy: ${gamRes.energy}/5 ⚡${hintText}${energyAlert}`
             });
           } else {
             // Fail after 2 retries, send trick and buttons to move on
             outboundMessages.push({
-              text: `❌ *Not quite correct, but don't worry!* Learning is what counts.\n\n${evalData.trick}`
+              text: `❌ *Not quite correct, but don't worry!* Learning is what counts. (+2 XP 🛡️) | Energy: ${gamRes.energy}/5 ⚡${energyAlert}\n\n${evalData.trick}`
             });
 
             gameState.level = level + 1;
@@ -442,6 +459,132 @@ async function executeTransitionActions(phone, actions) {
       // Trigger side-effect
       await publishEvent('platform-resets', createEvent('USER_MESSAGE_RECEIVED', phone, { text: 'webhook_triggered', is_button: false }));
     }
+  }
+}
+
+/**
+ * Update gamification state (XP, level, streak, energy, badges) for a user in Postgres.
+ */
+async function updateGamification(phone, isCorrect, responseTimeMs) {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  try {
+    // 1. Fetch current status
+    const userRes = await pgPool.query(
+      'SELECT level, xp, streak, rank, badges, energy, last_active FROM users WHERE phone_number = $1',
+      [phone]
+    );
+    
+    let level = 1;
+    let xp = 0;
+    let streak = 0;
+    let rank = 'Bronze';
+    let badges = '[]';
+    let energy = 5;
+    let last_active = null;
+
+    if (userRes.rows.length > 0) {
+      const row = userRes.rows[0];
+      level = row.level || 1;
+      xp = row.xp || 0;
+      streak = row.streak || 0;
+      rank = row.rank || 'Bronze';
+      badges = row.badges || '[]';
+      energy = row.energy === null ? 5 : row.energy;
+      last_active = row.last_active;
+    } else {
+      // Create user record if not exists
+      await pgPool.query(
+        `INSERT INTO users (id, phone_number, level, xp, streak, rank, badges, energy, last_active, created_at, updated_at)
+         VALUES ($1, $2, 1, 0, 0, 'Bronze', '[]', 5, NULL, $3, $4)`,
+        ['usr_' + Math.random().toString(36).substr(2, 9), phone, now.toISOString(), now.toISOString()]
+      );
+    }
+    
+    let parsedBadges = [];
+    try {
+      parsedBadges = JSON.parse(badges);
+    } catch (e) {
+      parsedBadges = [];
+    }
+    
+    // 2. Streak calculations
+    if (!last_active) {
+      streak = 1;
+    } else {
+      const lastActiveDate = new Date(last_active);
+      const diffTime = Math.abs(now - lastActiveDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (last_active === dateStr) {
+        // Active today, retain streak
+      } else if (diffDays === 1) {
+        streak += 1;
+      } else {
+        streak = 1; // reset broken streak
+      }
+    }
+    
+    // 3. Calculate XP & Energy
+    let xpGained = 0;
+    if (isCorrect) {
+      xpGained = 10;
+      if (responseTimeMs < 5000) {
+        xpGained += 5; // speed bonus
+      }
+      if (streak > 1) {
+        const multiplier = 1 + (streak * 0.1);
+        xpGained = Math.floor(xpGained * multiplier);
+      }
+    } else {
+      xpGained = 2; // reward effort
+    }
+    
+    const newXp = xp + xpGained;
+    const newLevel = Math.floor(newXp / 100) + 1;
+    let levelUp = false;
+    
+    if (newLevel > level) {
+      levelUp = true;
+      if (newLevel >= 5) rank = 'Diamond';
+      else if (newLevel === 4) rank = 'Platinum';
+      else if (newLevel === 3) rank = 'Gold';
+      else if (newLevel === 2) rank = 'Silver';
+      
+      const newBadge = `Level ${newLevel} Solver`;
+      if (!parsedBadges.includes(newBadge)) {
+        parsedBadges.push(newBadge);
+      }
+    }
+    
+    let newEnergy = energy;
+    if (!isCorrect) {
+      newEnergy = Math.max(0, energy - 1);
+    } else {
+      newEnergy = Math.min(5, energy + 1);
+    }
+    
+    await pgPool.query(
+      `UPDATE users 
+       SET level = $1, xp = $2, streak = $3, rank = $4, badges = $5, energy = $6, last_active = $7, updated_at = $8
+       WHERE phone_number = $9`,
+      [newLevel, newXp, streak, rank, JSON.stringify(parsedBadges), newEnergy, dateStr, now.toISOString(), phone]
+    );
+    
+    return {
+      xpGained,
+      levelUp,
+      streak,
+      xp: newXp,
+      level: newLevel,
+      rank,
+      badges: parsedBadges,
+      energy: newEnergy
+    };
+  } catch (err) {
+    logger.error(`Error in updateGamification: ${err.message}`);
+    return { xpGained: 0, levelUp: false, streak: 1, xp: 0, level: 1, rank: 'Bronze', badges: [], energy: 5 };
   }
 }
 

@@ -479,6 +479,10 @@ export default function App() {
                       <th>Game Score</th>
                       <th>Lead Stage</th>
                       <th>Lead Score</th>
+                      <th>Level/XP</th>
+                      <th>Streak</th>
+                      <th>Energy</th>
+                      <th>Behavioral attributes</th>
                       <th>Source</th>
                     </tr>
                   </thead>
@@ -500,6 +504,25 @@ export default function App() {
                             </div>
                             <span>{contact.lead_score}</span>
                           </div>
+                        </td>
+                        <td>Level {contact.level || 1} ({contact.xp || 0} XP)</td>
+                        <td>{contact.streak || 0} 🔥</td>
+                        <td>{contact.energy !== undefined && contact.energy !== null ? contact.energy : 5}/5 ⚡</td>
+                        <td>
+                          {contact.derived_attributes ? (() => {
+                            try {
+                              const derived = JSON.parse(contact.derived_attributes);
+                              return (
+                                <div style={{ fontSize: '0.65rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span>Speed: <strong>{derived.fast_learner_score}</strong></span>
+                                  <span>Churn: <span style={{ color: derived.churn_risk === 'HIGH' ? 'var(--warning)' : 'var(--success)' }}>{derived.churn_risk}</span></span>
+                                  <span>Pref: <strong>{derived.difficulty_preference}</strong></span>
+                                </div>
+                              );
+                            } catch (e) {
+                              return <span style={{ color: 'var(--text-muted)' }}>-</span>;
+                            }
+                          })() : <span style={{ color: 'var(--text-muted)' }}>-</span>}
                         </td>
                         <td>{contact.source}</td>
                       </tr>

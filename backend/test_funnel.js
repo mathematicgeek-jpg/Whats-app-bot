@@ -11,14 +11,15 @@ async function runTest() {
   console.log('🔄 Starting WhatsApp Conversational Funnel Integration Tests...\n');
 
   try {
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
     // 1. Reset Database
     console.log('Step 1: Resetting simulator database...');
     const resetRes = await fetch(`${BACKEND_URL}/api/admin/reset`, { method: 'POST' });
     const resetData = await resetRes.json();
     if (!resetData.success) throw new Error('Database reset failed');
+    await sleep(1000);
     console.log('✅ Database reset successful.\n');
-
-    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
     // Helper to send webhook message and poll async logs for responses
     const sendMessage = async (text, isButton = false) => {
@@ -164,6 +165,32 @@ async function runTest() {
     const followupData = await followupRes.json();
     if (!followupData.success) throw new Error('Follow-up trigger failed');
     console.log('✅ Day 1 drop-off follow-up successfully triggered & state transitioned.');
+    
+    // 7. Verify Gamification & Behavioral Attributes
+    console.log('Step 7: Verifying gamified levels, XP, and derived attributes...');
+    contact = await getContact();
+    console.log(`🎮 User Gamification: Level=${contact.level}, XP=${contact.xp}, Streak=${contact.streak}, Energy=${contact.energy}/5`);
+    console.log('🏆 Badges:', contact.badges);
+    console.log('🧠 Derived Attributes:', contact.derived_attributes);
+
+    if (!contact.level || contact.level < 1) {
+      throw new Error('User gamified level calculation is invalid');
+    }
+    if (!contact.xp || contact.xp < 10) {
+      throw new Error('User XP rewards system failed');
+    }
+    if (contact.energy === undefined || contact.energy < 0) {
+      throw new Error('User Energy counter failed');
+    }
+    if (!contact.derived_attributes) {
+      throw new Error('Behavioral derived attributes failed to generate');
+    }
+
+    const derived = JSON.parse(contact.derived_attributes);
+    if (derived.fast_learner_score === undefined || !derived.churn_risk) {
+      throw new Error('Behavioral attributes schema is missing critical properties');
+    }
+    console.log('✅ Gamification, streaks, and dynamic attributes validated.\n');
 
     console.log('\n🎉 ALL BOT FUNNEL AND CRM INTEGRATION TESTS PASSED SUCCESSFULLY! 🎉\n');
 
