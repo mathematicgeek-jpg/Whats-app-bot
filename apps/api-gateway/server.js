@@ -10,19 +10,6 @@ import fs from 'fs';
 dotenv.config();
 
 const fastify = Fastify({ logger: false });
-
-// Enable CORS support
-fastify.addHook('onRequest', async (request, reply) => {
-  reply.headers({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
-  });
-  if (request.method === 'OPTIONS') {
-    return reply.status(204).send();
-  }
-});
-
 const PORT = process.env.PORT || 3001;
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'MATH_GEEK_BOT_VERIFY_TOKEN';
 
