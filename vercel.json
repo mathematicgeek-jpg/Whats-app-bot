@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm install --workspace=root",
+  "installCommand": "npm install",
   "framework": null,
   "functions": {
     "api/**/*.js": {

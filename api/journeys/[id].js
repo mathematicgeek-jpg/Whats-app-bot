@@ -11,6 +11,15 @@ import { query, bootstrapSchema } from '../../lib/db.js';
 import { logger } from '../../lib/logger.js';
 
 export default async function handler(req, res) {
+  // Enable CORS for frontend
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   await bootstrapSchema();
 
   const { id } = req.query;

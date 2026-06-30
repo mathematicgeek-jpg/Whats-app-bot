@@ -20,6 +20,9 @@ import {
   Settings
 } from 'lucide-react';
 
+// API base URL: empty for same-origin (vercel dev), or set VITE_API_URL for cross-origin
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export default function App() {
   const [phone, setPhone] = useState('+919876543210');
   const [inputText, setInputText] = useState('');
@@ -61,103 +64,66 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Connect to SSE stream
+  // Fetch dashboard data (replaces SSE — serverless doesn't support long-lived connections)
+  const fetchDashboard = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/simulate`);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(data.contacts || []);
+        setLogs(data.logs || []);
+        setSessions(data.sessions || {});
+      }
+    } catch (err) {
+      console.debug('Dashboard fetch error (expected on first load):', err.message);
+    }
+  };
+
   useEffect(() => {
-    const eventSource = new EventSource('/api/events');
-
-    eventSource.addEventListener('init', (e) => {
-      const data = JSON.parse(e.data);
-      setContacts(data.contacts || []);
-      setLogs(data.logs || []);
-      setSessions(data.sessions || {});
-    });
-
-    eventSource.addEventListener('log', (e) => {
-      const log = JSON.parse(e.data);
-      setLogs(prev => [log, ...prev]);
-    });
-
-    eventSource.addEventListener('crm_update', (e) => {
-      const data = JSON.parse(e.data);
-      setContacts(prev => {
-        const exists = prev.find(c => c.whatsapp_number === data.contact.whatsapp_number);
-        if (exists) {
-          return prev.map(c => c.whatsapp_number === data.contact.whatsapp_number ? data.contact : c);
-        }
-        return [data.contact, ...prev];
-      });
-    });
-
-    eventSource.addEventListener('state_change', (e) => {
-      const data = JSON.parse(e.data);
-      setSessions(prev => ({
-        ...prev,
-        [data.phone]: data.session
-      }));
-    });
-
-    eventSource.addEventListener('reset', () => {
-      setContacts([]);
-      setLogs([]);
-      setSessions({});
-      setMessages([]);
-    });
-
-    return () => {
-      eventSource.close();
-    };
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
   }, []);
 
-  // Fetch Config Service definitions on mount
+  // Fetch journey config on mount
   useEffect(() => {
     fetchConfigs();
   }, []);
 
   const fetchConfigs = async () => {
     try {
-      const jRes = await fetch('/api/config/journeys/default');
+      const jRes = await fetch(`${API_BASE}/api/journeys/default`);
       if (jRes.ok) {
         const jData = await jRes.json();
         if (jData && jData.definition) {
-          setJourneyNodes(jData.definition.nodes || {});
+          const def = typeof jData.definition === 'string' ? JSON.parse(jData.definition) : jData.definition;
+          setJourneyNodes(def.nodes || {});
         }
       }
-      
-      const gRes = await fetch('/api/config/games');
-      if (gRes.ok) {
-        const gData = await gRes.json();
-        setGameLevels(gData);
-      }
-      
-      const sRes = await fetch('/api/config/segments');
-      if (sRes.ok) {
-        const sData = await sRes.json();
-        setSegments(sData);
-      }
     } catch (err) {
-      console.error("Failed to fetch configurations:", err);
+      console.debug('Config fetch skipped (journey may not be in DB yet):', err.message);
     }
   };
 
   const deployJourney = async () => {
     setIsDeploying(true);
     try {
-      const res = await fetch('/api/config/journeys', {
+      const res = await fetch(`${API_BASE}/api/journeys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: 'default',
           name: 'Default Onboarding',
           is_active: true,
-          definition: {
+          definition: JSON.stringify({
             journey_id: 'default',
             entry_point: 'WELCOME',
             nodes: journeyNodes
-          }
+          })
         })
       });
       if (res.ok) {
-        alert("🚀 Visual Journey deployed to production microservices cluster!");
+        alert("🚀 Visual Journey deployed to serverless backend!");
       }
     } catch (err) {
       alert("Error deploying journey: " + err.message);
@@ -167,18 +133,9 @@ export default function App() {
   };
 
   const saveGameConfig = async (levelConfig) => {
-    try {
-      const res = await fetch('/api/config/games', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(levelConfig)
-      });
-      if (res.ok) {
-        fetchConfigs();
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    // Game config is now embedded in quizEngine.js — no remote API needed
+    console.log('Game config saved locally:', levelConfig);
+    alert('Game config changes are managed in lib/quizEngine.js for the serverless backend.');
   };
 
   // Initialize Welcome Message on Phone load
@@ -214,7 +171,7 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/whatsapp-webhook', {
+      const response = await fetch(`${API_BASE}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,12 +180,26 @@ export default function App() {
           isButton: isBtn
         })
       });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error('Simulate API error:', response.status, errText);
+        setIsTyping(false);
+        setMessages(prev => [...prev, {
+          id: `err_${Date.now()}`,
+          sender: 'bot',
+          text: `⚠️ Server error (${response.status}). Please check if the database and Redis are running.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+        return;
+      }
+
       const data = await response.json();
 
       // Add a slight simulated delay for conversational realism
       setTimeout(() => {
         setIsTyping(false);
-        if (data.success && data.responses) {
+        if (data.responses && data.responses.length > 0) {
           const botMsgs = data.responses.map((resp, idx) => ({
             id: `bot_${Date.now()}_${idx}`,
             sender: 'bot',
@@ -237,31 +208,50 @@ export default function App() {
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }));
           setMessages(prev => [...prev, ...botMsgs]);
+        } else if (data.error) {
+          setMessages(prev => [...prev, {
+            id: `err_${Date.now()}`,
+            sender: 'bot',
+            text: `⚠️ ${data.error}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }]);
         }
+        // Refresh dashboard after message
+        fetchDashboard();
       }, 800);
     } catch (err) {
-      console.error("Error sending message to webhook", err);
+      console.error("Error sending message to simulate API", err);
       setIsTyping(false);
+      setMessages(prev => [...prev, {
+        id: `err_${Date.now()}`,
+        sender: 'bot',
+        text: `⚠️ Connection error: ${err.message}. Is the server running?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
     }
   };
 
   const handleReset = async () => {
     if (confirm("Reset all session states and mock CRM data?")) {
-      await fetch('/api/admin/reset', { method: 'POST' });
+      await fetch(`${API_BASE}/api/simulate`, { method: 'DELETE' });
       setMessages([]);
+      setContacts([]);
+      setLogs([]);
+      setSessions({});
     }
   };
 
   const triggerCalendlyBooking = async () => {
     try {
-      const res = await fetch('/api/crm/book-demo', {
+      const res = await fetch(`${API_BASE}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
+        body: JSON.stringify({ action: 'book-demo', phone })
       });
       const data = await res.json();
       if (data.success) {
         alert("📆 Mock Calendly booking event fired successfully! Check CRM and Chat updates.");
+        fetchDashboard();
       }
     } catch (err) {
       console.error(err);
@@ -270,32 +260,21 @@ export default function App() {
 
   const triggerFollowup = async (day) => {
     try {
-      const res = await fetch('/api/admin/trigger-followup', {
+      const res = await fetch(`${API_BASE}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, day })
+        body: JSON.stringify({ action: 'trigger-followup', phone, day })
       });
       const data = await res.json();
-      if (data.success) {
-        // Fetch fresh welcome message and add follow up
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `followup_${Date.now()}`,
-            sender: 'bot',
-            text: day === 1 
-              ? `👋 Hey! We missed you yesterday!\nHere is a quick 2-second Vedic Trick: *Dividing by 9*.\n\nFor 23 ÷ 9:\n1. First digit *2* is the quotient.\n2. Add digits (2 + 3 = 5) -> this is the remainder.\nAnswer: *2 remainder 5*!\n\nWant to learn more shortcuts? Resume where you left off! 👇`
-              : day === 2
-                ? `"My daughter Aarohi used to cry during math homework. After just 3 classes of Vedic Maths, she calculates faster than me!" — Smita (Parent) 👩‍👧\n\nWatch Aarohi solve a 5-digit square root in 4 seconds: https://youtube.com/mock-video\n\nGive your child math confidence! 👇`
-                : `⏰ *Last Chance!*\n\nThe free 1-on-1 Vedic Maths assessment slots are almost fully booked for this week. Only *3 spots* remain in your region.\n\nDon't miss this opportunity to triple your calculation speed! 👇`,
-            buttons: day === 1 
-              ? ["Resume Challenge 🚀", "Book Free Class 📅"] 
-              : day === 2 
-                ? ["Book Free Class 📅", "Play Math Game 🎮"]
-                : ["Claim Free Spot Now 🎁"],
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
+      if (data.success && data.responses) {
+        const followupMsgs = data.responses.map((resp, idx) => ({
+          id: `followup_${Date.now()}_${idx}`,
+          sender: 'bot',
+          text: resp.text,
+          buttons: resp.buttons,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }));
+        setMessages(prev => [...prev, ...followupMsgs]);
       }
     } catch (err) {
       console.error(err);

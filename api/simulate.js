@@ -61,6 +61,7 @@ export default async function handler(req, res) {
       const logs = logsRes.rows.map(r => ({
         ...r,
         category: r.event_type,
+        timestamp: r.created_at,
         payload: (() => { try { return JSON.parse(r.payload || '{}'); } catch { return {}; } })()
       }));
 
