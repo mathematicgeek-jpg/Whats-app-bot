@@ -19,7 +19,11 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  await bootstrapSchema();
+  try {
+    await bootstrapSchema();
+  } catch (err) {
+    logger.error('Database bootstrap failed', { error: err.message });
+  }
 
   // ============================================
   // GET — List all journeys
