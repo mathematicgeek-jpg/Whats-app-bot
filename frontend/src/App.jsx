@@ -17,7 +17,14 @@ import {
   Sparkles,
   Smartphone,
   Sliders,
-  Settings
+  Settings,
+  Plus,
+  Trash2,
+  Zap,
+  Shuffle,
+  Award,
+  Check,
+  Eye
 } from 'lucide-react';
 
 // API base URL: empty for same-origin (vercel dev), or set VITE_API_URL for cross-origin
@@ -43,6 +50,9 @@ export default function App() {
   const [gameLevels, setGameLevels] = useState([]);
   const [segments, setSegments] = useState([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [draggedNodeId, setDraggedNodeId] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isConfettiActive, setIsConfettiActive] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -97,7 +107,18 @@ export default function App() {
         const jData = await jRes.json();
         if (jData && jData.definition) {
           const def = typeof jData.definition === 'string' ? JSON.parse(jData.definition) : jData.definition;
-          setJourneyNodes(def.nodes || {});
+          
+          // Auto-initialize coordinates for the flowchart canvas
+          const nodes = def.nodes || {};
+          let index = 0;
+          Object.keys(nodes).forEach(id => {
+            if (nodes[id].x === undefined) {
+              nodes[id].x = 50 + (index % 3) * 260;
+              nodes[id].y = 50 + Math.floor(index / 3) * 190;
+            }
+            index++;
+          });
+          setJourneyNodes(nodes);
         }
       }
     } catch (err) {
@@ -123,6 +144,8 @@ export default function App() {
         })
       });
       if (res.ok) {
+        setIsConfettiActive(true);
+        setTimeout(() => setIsConfettiActive(false), 5000);
         alert("🚀 Visual Journey deployed to serverless backend!");
       }
     } catch (err) {
@@ -130,6 +153,153 @@ export default function App() {
     } finally {
       setIsDeploying(false);
     }
+  };
+
+  const handleNodeMouseDown = (e, nodeId) => {
+    if (e.button !== 0 || e.target.closest('button') || e.target.closest('input')) return;
+    setDraggedNodeId(nodeId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+  };
+
+  const handleCanvasMouseMove = (e) => {
+    if (!draggedNodeId) return;
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - dragOffset.x;
+    const y = e.clientY - rect.top - dragOffset.y;
+    
+    const snapX = Math.round(x / 10) * 10;
+    const snapY = Math.round(y / 10) * 10;
+    
+    setJourneyNodes(prev => ({
+      ...prev,
+      [draggedNodeId]: {
+        ...prev[draggedNodeId],
+        x: Math.max(0, snapX),
+        y: Math.max(0, snapY)
+      }
+    }));
+  };
+
+  const handleCanvasMouseUp = () => {
+    setDraggedNodeId(null);
+  };
+
+  const renderSVGConnections = () => {
+    const paths = [];
+    const nodeWidth = 220;
+    
+    Object.keys(journeyNodes).forEach(sourceId => {
+      const source = journeyNodes[sourceId];
+      if (!source.transitions) return;
+      
+      const targets = [];
+      if (Array.isArray(source.transitions)) {
+        source.transitions.forEach(t => {
+          if (t.next_node) targets.push({ name: t.value || 'next', id: t.next_node });
+        });
+      } else if (typeof source.transitions === 'object') {
+        Object.keys(source.transitions).forEach(trigger => {
+          const targetId = source.transitions[trigger];
+          if (targetId) targets.push({ name: trigger, id: targetId });
+        });
+      }
+      
+      targets.forEach(target => {
+        const dest = journeyNodes[target.id];
+        if (dest && dest.x !== undefined && dest.y !== undefined) {
+          const x1 = source.x + nodeWidth / 2;
+          const y1 = source.y + 80;
+          
+          const x2 = dest.x + nodeWidth / 2;
+          const y2 = dest.y;
+          
+          const controlY = y1 + (y2 - y1) / 2;
+          const pathD = `M ${x1} ${y1} C ${x1} ${controlY}, ${x2} ${controlY}, ${x2} ${y2}`;
+          
+          paths.push(
+            <g key={`${sourceId}-${target.id}-${target.name}`}>
+              <path 
+                d={pathD} 
+                stroke="rgba(99, 102, 241, 0.4)" 
+                strokeWidth="2.5" 
+                fill="none" 
+                markerEnd="url(#arrow)" 
+                style={{ transition: 'all 0.1s' }}
+              />
+              <rect 
+                x={(x1 + x2) / 2 - 40} 
+                y={(y1 + y2) / 2 - 8} 
+                width="80" 
+                height="16" 
+                rx="4" 
+                fill="#111827" 
+                stroke="rgba(255,255,255,0.06)" 
+                strokeWidth="1"
+              />
+              <text 
+                x={(x1 + x2) / 2} 
+                y={(y1 + y2) / 2 + 4} 
+                fill="rgba(255, 255, 255, 0.6)" 
+                fontSize="8px" 
+                textAnchor="middle"
+                fontWeight="500"
+              >
+                {target.name.length > 15 ? target.name.substring(0, 12) + '...' : target.name}
+              </text>
+            </g>
+          );
+        }
+      });
+    });
+    return paths;
+  };
+
+  const getNodeIcon = (type) => {
+    switch (type) {
+      case 'message': return <Send size={14} className="text-primary" />;
+      case 'game_evaluator': return <Award size={14} className="text-warning" />;
+      case 'input_capture': return <User size={14} className="text-success" />;
+      case 'condition': return <GitMerge size={14} className="text-error" />;
+      case 'ab_split': return <Shuffle size={14} style={{ color: '#06b6d4' }} />;
+      case 'meta_template': return <Zap size={14} style={{ color: '#ec4899' }} />;
+      default: return <HelpCircle size={14} />;
+    }
+  };
+
+  const getCoachAlert = (nodeId, node) => {
+    if (node.type === 'message' && (!node.responses?.[0]?.buttons || node.responses[0].buttons.length === 0)) {
+      return "💡 Add a quick reply button to boost conversion by 25%";
+    }
+    if (nodeId === 'PITCH_AND_CTA') {
+      return "💡 Add a countdown reward to this offer to reduce drop-off by 18%";
+    }
+    return null;
+  };
+
+  const handleAddNode = () => {
+    const newNodeId = prompt("Enter Unique Node ID (e.g. CUSTOM_MESSAGE):");
+    if (!newNodeId) return;
+    if (journeyNodes[newNodeId]) {
+      alert("Node ID already exists!");
+      return;
+    }
+    
+    setJourneyNodes(prev => ({
+      ...prev,
+      [newNodeId]: {
+        type: 'message',
+        responses: [{ text: "Enter message text here...", buttons: [] }],
+        transitions: {},
+        x: 100,
+        y: 100
+      }
+    }));
+    setSelectedNodeId(newNodeId);
   };
 
   const saveGameConfig = async (levelConfig) => {
@@ -772,48 +942,164 @@ export default function App() {
                 {/* Sub Tab: Journey Builder */}
                 {activeSubTab === 'journey' && (
                   <div>
-                    <div className="control-panel-grid">
-                      {/* Sidebar List of Nodes */}
-                      <div className="node-list-sidebar">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white' }}>Journey Nodes</span>
-                          <button 
-                            className="btn-admin" 
-                            style={{ padding: '0.1rem 0.4rem', fontSize: '0.65rem' }}
-                            onClick={() => {
-                              const newNodeId = prompt("Enter Unique Node ID (e.g. CUSTOM_MESSAGE):");
-                              if (newNodeId) {
-                                setJourneyNodes(prev => ({
-                                  ...prev,
-                                  [newNodeId]: {
-                                    type: 'message',
-                                    responses: [{ text: "Enter message text here...", buttons: [] }],
-                                    transitions: {}
-                                  }
-                                }));
-                                setSelectedNodeId(newNodeId);
-                              }
-                            }}
-                          >
-                            + Add Node
-                          </button>
-                        </div>
-                        {Object.keys(journeyNodes).map((nodeId) => (
+                    {isConfettiActive && (
+                      <div className="confetti-container">
+                        {Array.from({ length: 60 }).map((_, i) => (
                           <div 
-                            key={nodeId}
-                            className={`node-list-item ${selectedNodeId === nodeId ? 'node-list-item-active' : ''}`}
-                            onClick={() => setSelectedNodeId(nodeId)}
-                          >
-                            <span>{nodeId}</span>
-                            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>{journeyNodes[nodeId].type}</span>
-                          </div>
+                            key={i} 
+                            className="confetti-piece" 
+                            style={{
+                              left: `${Math.random() * 100}%`,
+                              animationDelay: `${Math.random() * 2.5}s`,
+                              backgroundColor: ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4'][i % 6]
+                            }}
+                          />
                         ))}
                       </div>
+                    )}
 
-                      {/* Node Editor Form */}
-                      <div className="node-editor-form">
+                    <div className="journey-builder-workspace">
+                      {/* Interactive flowchart canvas */}
+                      <div 
+                        className="flowchart-canvas"
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUp}
+                        style={{
+                          flex: '2',
+                          minWidth: '500px',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '12px',
+                          background: '#0a0d16',
+                          position: 'relative',
+                          overflow: 'auto'
+                        }}
+                      >
+                        {/* Canvas Header Control */}
+                        <div style={{ position: 'absolute', top: '12px', left: '12px', display: 'flex', gap: '8px', zIndex: 10 }}>
+                          <button 
+                            className="btn-admin" 
+                            onClick={handleAddNode}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0.35rem 0.75rem', fontSize: '0.75rem' }}
+                          >
+                            <Plus size={14} /> Add New Node
+                          </button>
+                        </div>
+
+                        {/* SVG Connections layer */}
+                        <svg 
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '2000px',
+                            height: '2000px',
+                            pointerEvents: 'none',
+                            zIndex: 1
+                          }}
+                        >
+                          <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                              <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" />
+                            </marker>
+                          </defs>
+                          {renderSVGConnections()}
+                        </svg>
+
+                        {/* Node Card Loop */}
+                        {Object.keys(journeyNodes).map((nodeId) => {
+                          const node = journeyNodes[nodeId];
+                          return (
+                            <div
+                              key={nodeId}
+                              className={`flowchart-node-card node-card-${node.type} ${selectedNodeId === nodeId ? 'node-card-selected' : ''}`}
+                              style={{
+                                position: 'absolute',
+                                left: `${node.x || 50}px`,
+                                top: `${node.y || 50}px`,
+                                zIndex: 2,
+                                cursor: draggedNodeId === nodeId ? 'grabbing' : 'grab'
+                              }}
+                              onMouseDown={(e) => handleNodeMouseDown(e, nodeId)}
+                              onClick={() => setSelectedNodeId(nodeId)}
+                            >
+                              <div className="node-card-header">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {getNodeIcon(node.type)}
+                                  <span style={{ fontWeight: 'bold' }}>{nodeId}</span>
+                                </div>
+                                <button 
+                                  className="node-delete-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Delete node "${nodeId}"?`)) {
+                                      setJourneyNodes(prev => {
+                                        const copy = { ...prev };
+                                        delete copy[nodeId];
+                                        return copy;
+                                      });
+                                      if (selectedNodeId === nodeId) setSelectedNodeId(null);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
+                              <div className="node-card-body">
+                                <p className="node-preview-text">
+                                  {node.text 
+                                    ? (node.text.substring(0, 48) + (node.text.length > 48 ? '...' : '')) 
+                                    : (node.responses?.[0]?.text 
+                                      ? (node.responses[0].text.substring(0, 48) + (node.responses[0].text.length > 48 ? '...' : ''))
+                                      : `[${node.type}]`
+                                    )
+                                  }
+                                </p>
+                                
+                                {node.type === 'message' && node.responses?.[0]?.buttons && (
+                                  <div style={{ marginTop: '4px' }}>
+                                    {node.responses[0].buttons.map(b => (
+                                      <span key={b} className="node-btn-badge">{b}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                
+                                {node.type === 'meta_template' && (
+                                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                    <span className="node-btn-badge" style={{ background: 'rgba(236,72,153,0.15)', borderColor: 'rgba(236,72,153,0.3)' }}>{node.template_name}</span>
+                                    <span className="badge badge-qualified" style={{ fontSize: '0.55rem', padding: '1px 4px' }}>{node.approval_status || 'APPROVED'}</span>
+                                  </div>
+                                )}
+
+                                {node.type === 'ab_split' && (
+                                  <div style={{ marginTop: '4px' }}>
+                                    {(node.variants || []).map(v => (
+                                      <span key={v.id} className="node-btn-badge" style={{ background: 'rgba(6,182,212,0.15)', borderColor: 'rgba(6,182,212,0.3)' }}>
+                                        {v.id} ({v.weight}%)
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {getCoachAlert(nodeId, node) && (
+                                <div className="node-coach-badge" title={getCoachAlert(nodeId, node)}>
+                                  💡
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Node Config Panel */}
+                      <div className="node-editor-form" style={{ flex: '1', minWidth: '320px', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', height: '520px', overflowY: 'auto' }}>
                         {selectedNodeId && journeyNodes[selectedNodeId] ? (
                           <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>Node Configurations</span>
+                              <span className="badge badge-engaged" style={{ fontSize: '0.65rem' }}>{journeyNodes[selectedNodeId].type}</span>
+                            </div>
+
                             <div className="form-group-horizontal">
                               <span className="form-label">Node ID</span>
                               <input className="form-input" value={selectedNodeId} disabled style={{ width: '100%' }} />
@@ -826,33 +1112,49 @@ export default function App() {
                                 value={journeyNodes[selectedNodeId].type}
                                 onChange={(e) => {
                                   const type = e.target.value;
-                                  setJourneyNodes(prev => ({
-                                    ...prev,
-                                    [selectedNodeId]: { ...prev[selectedNodeId], type }
-                                  }));
+                                  setJourneyNodes(prev => {
+                                    const copy = { ...prev[selectedNodeId], type };
+                                    if (type === 'ab_split' && !copy.variants) {
+                                      copy.variants = [
+                                        { id: 'variant_a', weight: 50, next_node: '' },
+                                        { id: 'variant_b', weight: 50, next_node: '' }
+                                      ];
+                                    }
+                                    if (type === 'meta_template' && !copy.template_name) {
+                                      copy.template_name = 'welcome_promo_v1';
+                                      copy.language = 'en_US';
+                                      copy.approval_status = 'APPROVED';
+                                      copy.buttons = ["Start Challenge 🚀", "Know More 📘"];
+                                    }
+                                    return { ...prev, [selectedNodeId]: copy };
+                                  });
                                 }}
                                 style={{ width: '100%' }}
                               >
                                 <option value="message">Message Node</option>
                                 <option value="game_evaluator">Game Node</option>
-                                <option value="profiler">Profiler Node</option>
+                                <option value="input_capture">Profiler Node</option>
                                 <option value="condition">Condition Node</option>
+                                <option value="ab_split">A/B Split Test Node</option>
+                                <option value="meta_template">Meta Template Node</option>
                               </select>
                             </div>
 
+                            {/* TYPE 1: MESSAGE */}
                             {journeyNodes[selectedNodeId].type === 'message' && (
                               <>
                                 <div className="form-group-horizontal" style={{ alignItems: 'flex-start' }}>
-                                  <span className="form-label">Message Text</span>
+                                  <span className="form-label">Text Body</span>
                                   <textarea 
                                     className="form-textarea" 
                                     rows={4}
-                                    value={journeyNodes[selectedNodeId].responses?.[0]?.text || ''}
+                                    value={journeyNodes[selectedNodeId].responses?.[0]?.text || journeyNodes[selectedNodeId].text || ''}
                                     onChange={(e) => {
                                       const text = e.target.value;
                                       setJourneyNodes(prev => {
                                         const node = { ...prev[selectedNodeId] };
-                                        node.responses = [{ text, buttons: node.responses?.[0]?.buttons || [] }];
+                                        node.text = text;
+                                        node.responses = [{ text, buttons: node.responses?.[0]?.buttons || node.buttons || [] }];
                                         return { ...prev, [selectedNodeId]: node };
                                       });
                                     }}
@@ -864,12 +1166,13 @@ export default function App() {
                                   <input 
                                     className="form-input" 
                                     placeholder="Button 1, Button 2 (comma separated)"
-                                    value={(journeyNodes[selectedNodeId].responses?.[0]?.buttons || []).join(', ')}
+                                    value={(journeyNodes[selectedNodeId].responses?.[0]?.buttons || journeyNodes[selectedNodeId].buttons || []).join(', ')}
                                     onChange={(e) => {
                                       const btns = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                                       setJourneyNodes(prev => {
                                         const node = { ...prev[selectedNodeId] };
-                                        node.responses = [{ text: node.responses?.[0]?.text || '', buttons: btns }];
+                                        node.buttons = btns;
+                                        node.responses = [{ text: node.responses?.[0]?.text || node.text || '', buttons: btns }];
                                         return { ...prev, [selectedNodeId]: node };
                                       });
                                     }}
@@ -879,55 +1182,367 @@ export default function App() {
                               </>
                             )}
 
-                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.4rem' }}>Transitions / Next Nodes</span>
-                              {journeyNodes[selectedNodeId].type === 'message' && (journeyNodes[selectedNodeId].responses?.[0]?.buttons || []).map((btn) => (
-                                <div key={btn} className="form-group-horizontal" style={{ marginBottom: '0.4rem' }}>
-                                  <span className="form-label" style={{ fontSize: '0.65rem', color: 'white' }}>On "{btn}"</span>
-                                  <select 
-                                    className="form-select"
-                                    value={journeyNodes[selectedNodeId].transitions?.[btn] || ''}
-                                    onChange={(e) => {
-                                      const next = e.target.value;
-                                      setJourneyNodes(prev => {
-                                        const node = { ...prev[selectedNodeId] };
-                                        node.transitions = { ...node.transitions, [btn]: next };
-                                        return { ...prev, [selectedNodeId]: node };
-                                      });
-                                    }}
-                                    style={{ width: '100%' }}
-                                  >
-                                    <option value="">Choose next node...</option>
-                                    {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
-                                  </select>
-                                </div>
-                              ))}
-                              {(!journeyNodes[selectedNodeId].responses?.[0]?.buttons || journeyNodes[selectedNodeId].responses[0].buttons.length === 0) && (
+                            {/* TYPE 2: PROFILER / INPUT CAPTURE */}
+                            {journeyNodes[selectedNodeId].type === 'input_capture' && (
+                              <>
                                 <div className="form-group-horizontal">
-                                  <span className="form-label">On Default (Any text)</span>
+                                  <span className="form-label">Variable Name</span>
+                                  <input 
+                                    className="form-input" 
+                                    placeholder="e.g. student_name"
+                                    value={journeyNodes[selectedNodeId].variable || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], variable: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal" style={{ alignItems: 'flex-start' }}>
+                                  <span className="form-label">Prompt Text</span>
+                                  <textarea 
+                                    className="form-textarea" 
+                                    rows={3}
+                                    value={journeyNodes[selectedNodeId].text || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], text: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%', resize: 'vertical' }}
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            {/* TYPE 3: A/B SPLIT NODE */}
+                            {journeyNodes[selectedNodeId].type === 'ab_split' && (
+                              <>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Experiment</span>
+                                  <input 
+                                    className="form-input" 
+                                    placeholder="e.g. welcome_message_test"
+                                    value={journeyNodes[selectedNodeId].experiment_name || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], experiment_name: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                                
+                                <div style={{ marginTop: '0.5rem' }}>
+                                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.4rem' }}>Traffic Distribution</span>
+                                  {(journeyNodes[selectedNodeId].variants || []).map((variant, vIdx) => (
+                                    <div key={vIdx} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.4rem', borderRadius: '6px', marginBottom: '0.4rem', border: '1px solid var(--border-color)' }}>
+                                      <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                                        <input 
+                                          className="form-input" 
+                                          placeholder="Variant ID" 
+                                          value={variant.id || ''} 
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setJourneyNodes(prev => {
+                                              const node = { ...prev[selectedNodeId] };
+                                              node.variants = (node.variants || []).map((v, i) => i === vIdx ? { ...v, id: val } : v);
+                                              return { ...prev, [selectedNodeId]: node };
+                                            });
+                                          }}
+                                          style={{ flex: 1, fontSize: '0.65rem', padding: '0.2rem' }}
+                                        />
+                                        <input 
+                                          type="number"
+                                          className="form-input" 
+                                          placeholder="Weight %" 
+                                          value={variant.weight || 0} 
+                                          onChange={(e) => {
+                                            const val = parseInt(e.target.value, 10) || 0;
+                                            setJourneyNodes(prev => {
+                                              const node = { ...prev[selectedNodeId] };
+                                              node.variants = (node.variants || []).map((v, i) => i === vIdx ? { ...v, weight: val } : v);
+                                              return { ...prev, [selectedNodeId]: node };
+                                            });
+                                          }}
+                                          style={{ width: '60px', fontSize: '0.65rem', padding: '0.2rem' }}
+                                        />
+                                        <button 
+                                          className="btn-reset" 
+                                          onClick={() => {
+                                            setJourneyNodes(prev => {
+                                              const node = { ...prev[selectedNodeId] };
+                                              node.variants = (node.variants || []).filter((_, i) => i !== vIdx);
+                                              return { ...prev, [selectedNodeId]: node };
+                                            });
+                                          }}
+                                          style={{ padding: '0.1rem 0.3rem', height: '22px' }}
+                                        >
+                                          <Trash2 size={10} />
+                                        </button>
+                                      </div>
+                                      <select 
+                                        className="form-select"
+                                        value={variant.next_node || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setJourneyNodes(prev => {
+                                            const node = { ...prev[selectedNodeId] };
+                                            node.variants = (node.variants || []).map((v, i) => i === vIdx ? { ...v, next_node: val } : v);
+                                            return { ...prev, [selectedNodeId]: node };
+                                          });
+                                        }}
+                                        style={{ width: '100%', fontSize: '0.65rem', padding: '0.2rem' }}
+                                      >
+                                        <option value="">Route to next node...</option>
+                                        {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                      </select>
+                                    </div>
+                                  ))}
+                                  <button 
+                                    className="btn-admin" 
+                                    onClick={() => {
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.variants = [...(node.variants || []), { id: `variant_${(node.variants || []).length + 1}`, weight: 50, next_node: '' }];
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%', fontSize: '0.65rem', padding: '0.25rem' }}
+                                  >
+                                    + Add Traffic Variant
+                                  </button>
+                                </div>
+                              </>
+                            )}
+
+                            {/* TYPE 4: META TEMPLATE NODE */}
+                            {journeyNodes[selectedNodeId].type === 'meta_template' && (
+                              <>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Template ID</span>
+                                  <input 
+                                    className="form-input" 
+                                    placeholder="welcome_promo_v1"
+                                    value={journeyNodes[selectedNodeId].template_name || ''} 
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], template_name: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Language</span>
+                                  <input 
+                                    className="form-input" 
+                                    value={journeyNodes[selectedNodeId].language || 'en_US'} 
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], language: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal" style={{ alignItems: 'flex-start' }}>
+                                  <span className="form-label">Text Preview</span>
+                                  <textarea 
+                                    className="form-textarea" 
+                                    rows={3}
+                                    value={journeyNodes[selectedNodeId].text || ''} 
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], text: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%', resize: 'vertical' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Meta Status</span>
                                   <select 
                                     className="form-select"
-                                    value={journeyNodes[selectedNodeId].transitions?.default || ''}
+                                    value={journeyNodes[selectedNodeId].approval_status || 'APPROVED'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setJourneyNodes(prev => ({
+                                        ...prev,
+                                        [selectedNodeId]: { ...prev[selectedNodeId], approval_status: val }
+                                      }));
+                                    }}
+                                    style={{ width: '100%' }}
+                                  >
+                                    <option value="APPROVED">APPROVED ✅</option>
+                                    <option value="PENDING">PENDING ⏳</option>
+                                    <option value="REJECTED">REJECTED ❌</option>
+                                  </select>
+                                </div>
+                              </>
+                            )}
+
+                            {/* DYNAMIC TRANSITIONS EDITOR */}
+                            {['message', 'meta_template', 'game_evaluator', 'input_capture'].includes(journeyNodes[selectedNodeId].type) && (
+                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.4rem' }}>Transitions / Next Nodes</span>
+                                
+                                {/* Button quick-replies routing */}
+                                {journeyNodes[selectedNodeId].type === 'message' && (journeyNodes[selectedNodeId].responses?.[0]?.buttons || journeyNodes[selectedNodeId].buttons || []).map((btn) => (
+                                  <div key={btn} className="form-group-horizontal" style={{ marginBottom: '0.4rem' }}>
+                                    <span className="form-label" style={{ fontSize: '0.65rem', color: 'white' }}>On "{btn}"</span>
+                                    <select 
+                                      className="form-select"
+                                      value={
+                                        journeyNodes[selectedNodeId].transitions?.[btn] || 
+                                        (Array.isArray(journeyNodes[selectedNodeId].transitions) && journeyNodes[selectedNodeId].transitions.find(t => t.value === btn)?.next_node) || ''
+                                      }
+                                      onChange={(e) => {
+                                        const next = e.target.value;
+                                        setJourneyNodes(prev => {
+                                          const node = { ...prev[selectedNodeId] };
+                                          
+                                          if (Array.isArray(node.transitions)) {
+                                            const idx = node.transitions.findIndex(t => t.value === btn);
+                                            if (idx >= 0) node.transitions[idx].next_node = next;
+                                            else node.transitions.push({ trigger: 'button', value: btn, next_node: next });
+                                          } else {
+                                            node.transitions = { ...node.transitions, [btn]: next };
+                                          }
+                                          return { ...prev, [selectedNodeId]: node };
+                                        });
+                                      }}
+                                      style={{ width: '100%' }}
+                                    >
+                                      <option value="">Choose next node...</option>
+                                      {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                    </select>
+                                  </div>
+                                ))}
+
+                                {/* Fallback route when no buttons exist or on defaults */}
+                                {(!journeyNodes[selectedNodeId].responses?.[0]?.buttons?.length && !journeyNodes[selectedNodeId].buttons?.length) && (
+                                  <div className="form-group-horizontal">
+                                    <span className="form-label">On Default Route</span>
+                                    <select 
+                                      className="form-select"
+                                      value={
+                                        journeyNodes[selectedNodeId].transitions?.default || 
+                                        (Array.isArray(journeyNodes[selectedNodeId].transitions) && journeyNodes[selectedNodeId].transitions.find(t => t.trigger === 'game_success' || t.trigger === 'input')?.next_node) || ''
+                                      }
+                                      onChange={(e) => {
+                                        const next = e.target.value;
+                                        setJourneyNodes(prev => {
+                                          const node = { ...prev[selectedNodeId] };
+                                          if (Array.isArray(node.transitions)) {
+                                            if (node.transitions.length > 0) node.transitions[0].next_node = next;
+                                            else node.transitions = [{ trigger: 'input', next_node: next }];
+                                          } else {
+                                            node.transitions = { ...node.transitions, default: next };
+                                          }
+                                          return { ...prev, [selectedNodeId]: node };
+                                        });
+                                      }}
+                                      style={{ width: '100%' }}
+                                    >
+                                      <option value="">Choose next node...</option>
+                                      {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* CONDITION ROUTING */}
+                            {journeyNodes[selectedNodeId].type === 'condition' && (
+                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'white', display: 'block', marginBottom: '0.4rem' }}>Branch Routing</span>
+                                <div className="form-group-horizontal" style={{ marginBottom: '0.4rem' }}>
+                                  <span className="form-label">Condition Filter</span>
+                                  <input 
+                                    className="form-input" 
+                                    value={journeyNodes[selectedNodeId].branches?.[0]?.condition || ''} 
+                                    onChange={(e) => {
+                                      const cond = e.target.value;
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.branches = [{ condition: cond, next_node: node.branches?.[0]?.next_node || '' }];
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    placeholder="e.g. session.gameState.correctCount >= 2"
+                                    style={{ width: '100%', fontSize: '0.65rem' }}
+                                  />
+                                </div>
+                                <div className="form-group-horizontal" style={{ marginBottom: '0.4rem' }}>
+                                  <span className="form-label">If Match Route</span>
+                                  <select 
+                                    className="form-select"
+                                    value={journeyNodes[selectedNodeId].branches?.[0]?.next_node || ''}
                                     onChange={(e) => {
                                       const next = e.target.value;
                                       setJourneyNodes(prev => {
                                         const node = { ...prev[selectedNodeId] };
-                                        node.transitions = { ...node.transitions, default: next };
+                                        node.branches = [{ condition: node.branches?.[0]?.condition || '', next_node: next }];
                                         return { ...prev, [selectedNodeId]: node };
                                       });
                                     }}
-                                    style={{ width: '100%' }}
+                                    style={{ width: '100%', fontSize: '0.65rem' }}
                                   >
                                     <option value="">Choose next node...</option>
                                     {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
                                   </select>
                                 </div>
-                              )}
-                            </div>
+                                <div className="form-group-horizontal">
+                                  <span className="form-label">Else Fallback</span>
+                                  <select 
+                                    className="form-select"
+                                    value={journeyNodes[selectedNodeId].fallback || ''}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setJourneyNodes(prev => {
+                                        const node = { ...prev[selectedNodeId] };
+                                        node.fallback = next;
+                                        return { ...prev, [selectedNodeId]: node };
+                                      });
+                                    }}
+                                    style={{ width: '100%', fontSize: '0.65rem' }}
+                                  >
+                                    <option value="">Choose fallback node...</option>
+                                    {Object.keys(journeyNodes).map(id => <option key={id} value={id}>{id}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* GROWTH COACH TIPS PANEL */}
+                            {getCoachAlert(selectedNodeId, journeyNodes[selectedNodeId]) && (
+                              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', padding: '8px', borderRadius: '8px', marginTop: '10px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Sparkles size={12} /> Growth Coach Tip
+                                </span>
+                                <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  {getCoachAlert(selectedNodeId, journeyNodes[selectedNodeId])}
+                                </p>
+                              </div>
+                            )}
                           </>
                         ) : (
-                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '1rem' }}>
-                            Select a node from the sidebar to edit.
+                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '1rem', textAlign: 'center' }}>
+                            Select a node on the canvas grid map to configure properties.
                           </div>
                         )}
                       </div>
@@ -936,7 +1551,7 @@ export default function App() {
                     {/* Deploy Button */}
                     <div className="deploy-section">
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        Deploys visual JSON configurations directly to the Config Service database.
+                        Converts the drag-and-drop flowchart configuration into serverless JSON rules for WhatsApp API routes.
                       </span>
                       <button 
                         className="btn-deploy" 
