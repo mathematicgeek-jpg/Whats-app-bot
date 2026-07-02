@@ -72,7 +72,13 @@ export default async function handler(req, res) {
       // Active Sessions
       const sessions = await getAllSessions();
 
-      return res.status(200).json({ contacts, logs, sessions });
+      // A/B Experiment Stats & Meta Templates
+      const abRes = await query('SELECT * FROM ab_experiment_stats');
+      const abStats = abRes.rows;
+      const templatesRes = await query('SELECT * FROM meta_templates');
+      const templates = templatesRes.rows;
+
+      return res.status(200).json({ contacts, logs, sessions, abStats, templates });
     } catch (err) {
       logger.error('Failed to fetch dashboard data', { error: err.message });
       return res.status(500).json({ error: err.message });
